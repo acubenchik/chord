@@ -1,43 +1,69 @@
-import Node.{Join, Message}
-import akka.actor.{Actor, ActorLogging, Props}
+import java.util.concurrent.TimeUnit
 
-//TODO: findSuccessor naive implementation
+import Node.{AssignSuccessor, Configuration, FindSuccessor, Join}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.util.Timeout
 
-class Node extends Actor with ActorLogging {
+
+class Node(var successor: ActorRef, nodeHashValue: Int, var successorHashValue: Int) extends Actor with ActorLogging {
 
   private var _nodeName: String = ""
 
-  def nodeName = _nodeName
+  def nodeName: String = _nodeName
 
   def nodeName_=(name: String): Unit = {
     _nodeName = name
   }
 
   override def receive: Receive = {
-    case Message(message) =>
-      log.info(this.nodeName)
-      log.info(s"Message received (from ${sender()}): $message")
-    //    case Confuguration("get") =>
-    //      log.info(s"Message received (from ${sender()} to get configuration)")
-    //      sender() ! Message("Get your configuration")
-    case Join(name) =>
-      log.info("Join request")
-      if (this.nodeName.isEmpty) {
-        this.nodeName = name
+    case FindSuccessor(id: Int) =>
+      if ((id > nodeHashValue && id <= successorHashValue) || (id > nodeHashValue && successorHashValue - nodeHashValue < 0)) {
+        println("FOUND in node " + this.nodeHashValue)
+      } else {
+        this.successor ! FindSuccessor(id: Int)
       }
-      context.actorSelection("/user/*") ! Message(this.nodeName + " joined")
+    case AssignSuccessor(name: String, successorHashValue: Int) =>
+      import scala.concurrent.ExecutionContext.Implicits.global
+      this.successorHashValue = successorHashValue
+      val TIMEOUT: Timeout = Timeout(100, TimeUnit.MILLISECONDS)
+      context.actorSelection(name).resolveOne()(TIMEOUT).onComplete(res => {
+        this.successor = res.get
+      })
+    case Join(name: String, identifier: Int) =>
+      if ((identifier > nodeHashValue && identifier <= successorHashValue)
+        || (identifier > nodeHashValue && successorHashValue - nodeHashValue < 0)) {
+        println("FOUND a predcessor node to join " + this.nodeHashValue)
+        import scala.concurrent.ExecutionContext.Implicits.global
+        val previousSuccessorHash = this.successorHashValue
+        val previousSuccessor = this.successor
+        val TIMEOUT: Timeout = Timeout(100, TimeUnit.MILLISECONDS)
+        context.actorSelection(name).resolveOne()(TIMEOUT).onComplete(res  => {
+          this.successor = res.get // node that wants to join becomes current successor
+          this.successorHashValue = identifier
+          res.get ! Configuration(previousSuccessor, previousSuccessorHash) // send new config to newJoiner???
+        })
+      } else {
+        this.successor ! Join(name, identifier)
+      }
+    case Configuration(successor: ActorRef, successorHash: Int) =>
+      this.successor = successor
+      this.successorHashValue = successorHash
+
 
   }
 }
 
 object Node {
 
-  case class Message(message: String)
+  case class FindSuccessor(id: Int)
 
-  case class Join(nodeName: String)
+  case class AssignSuccessor(name: String, successorHashValue: Int)
 
-  case class Confuguration(message: String)
+  case class Join(name: String, identifier: Int)
 
-  def props(): Props = Props(new Node)
+  case class Configuration(successor: ActorRef, successorHash: Int)
+
+  def props(successor: ActorRef, nodeHashValue: Int, successorHashValue: Int): Props =
+    Props(new Node(successor, nodeHashValue, successorHashValue))
 
 }
