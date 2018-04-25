@@ -68,15 +68,17 @@ class Node(var successor: ActorRef, nodeHashValue: Int, var successorHashValue: 
 
 object Node {
 
-  case class FindSuccessor(id: Int)
+  sealed abstract class Command
 
-  case class Leave(nodeName: String, identifier: Int)
+  case class FindSuccessor(id: Int) extends Command
 
-  case class AssignSuccessor(name: String, successorHashValue: Int)
+  case class Leave(nodeName: String, identifier: Int)  extends Command
 
-  case class Join(name: String, identifier: Int)
+  case class AssignSuccessor(name: String, successorHashValue: Int) extends Command
 
-  case class Configuration(successor: ActorRef, successorHash: Int)
+  case class Join(name: String, identifier: Int) extends Command
+
+  case class Configuration(successor: ActorRef, successorHash: Int) extends Command
 
   def props(successor: ActorRef, nodeHashValue: Int, successorHashValue: Int): Props =
     Props(new Node(successor, nodeHashValue, successorHashValue))
