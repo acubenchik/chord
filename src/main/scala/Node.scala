@@ -1,8 +1,10 @@
 import java.util.concurrent.TimeUnit
 
 import Node._
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.{Actor, ActorIdentity, ActorLogging, ActorRef, Identify, Props}
 import akka.util.Timeout
+
+import scala.concurrent.ExecutionContext.Implicits.global
 
 
 class Node(var successor: ActorRef, nodeHashValue: Int, var successorHashValue: Int) extends Actor with ActorLogging {
@@ -16,6 +18,8 @@ class Node(var successor: ActorRef, nodeHashValue: Int, var successorHashValue: 
   }
 
   override def receive: Receive = {
+    case ActorIdentity(_, Some(ref)) =>
+      print("Identity found " + ref)
     case FindSuccessor(id: Int) =>
       if ((id > nodeHashValue && id <= successorHashValue) || (id > nodeHashValue && successorHashValue - nodeHashValue < 0)) {
         println("Found a responsible node for key " + id + " in node " + this.nodeHashValue)
@@ -26,9 +30,11 @@ class Node(var successor: ActorRef, nodeHashValue: Int, var successorHashValue: 
 
       this.successorHashValue = successorHashValue
       val TIMEOUT: Timeout = Timeout(100, TimeUnit.MILLISECONDS)
-//      context.actorSelection(name).resolveOne()(TIMEOUT).onComplete(res => {
-//        this.successor = res.get
-//      })
+      context.actorSelection(name) ! Identify(1)
+      context.actorSelection(name).resolveOne()(TIMEOUT).onComplete(res => {
+        println("And here as well " + res.get)
+        this.successor = res.get
+      })
     case Join(name: String, identifier: Int) =>
       println("Join request with id " + identifier + " received in node " + this.nodeHashValue + ", current node successor is " + this.successorHashValue)
       if ((identifier > nodeHashValue && identifier <= successorHashValue)
@@ -37,11 +43,11 @@ class Node(var successor: ActorRef, nodeHashValue: Int, var successorHashValue: 
         val previousSuccessorHash = this.successorHashValue
         val previousSuccessor = this.successor
         val TIMEOUT: Timeout = Timeout(100, TimeUnit.MILLISECONDS)
-//        context.actorSelection(name).resolveOne()(TIMEOUT).onComplete(res => {
-//          this.successor = res.get // node that wants to join becomes current successor
-//          this.successorHashValue = identifier
-//          res.get ! Configuration(previousSuccessor, previousSuccessorHash) // send new config to newJoiner???
-//        })
+        context.actorSelection(name).resolveOne()(TIMEOUT).onComplete(res => {
+          this.successor = res.get // node that wants to join becomes current successor
+          this.successorHashValue = identifier
+          res.get ! Configuration(previousSuccessor, previousSuccessorHash) // send new config to newJoiner???
+        })
       } else {
         println("Join request with id " + identifier + " passed further from node " + this.nodeHashValue)
         this.successor ! Join(name, identifier)
