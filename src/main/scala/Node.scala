@@ -1,74 +1,76 @@
-import java.util.concurrent.TimeUnit
-
 import Node._
-import akka.actor.{Actor, ActorIdentity, ActorLogging, ActorRef, Identify, Props}
-import akka.util.Timeout
-
-import scala.concurrent.ExecutionContext.Implicits.global
+import akka.actor.{Actor, ActorIdentity, ActorLogging, ActorRef, Props}
 
 
-class Node(var successor: ActorRef, nodeHashValue: Int, var successorHashValue: Int) extends Actor with ActorLogging {
+class Node(private var nodeHashValue: Int) extends Actor with ActorLogging {
 
-  private var _nodeName: String = ""
+  private var values = Map()
+  private var _successorHashValue: Option[Int] = None
+  private var _predecessorHashValue: Option[Int] = None
+  private var _predecessor: Option[ActorRef] = None
+  private var _successor: Option[ActorRef] = None
 
-  def nodeName: String = _nodeName
+  def successorHashValue: Option[Int] = _successorHashValue
 
-  def nodeName_=(name: String): Unit = {
-    _nodeName = name
-  }
+  def successorHashValue_=(value: Int): Unit = _successorHashValue = Some(value)
+
+  def predecessorHashValue: Option[Int] = _predecessorHashValue
+
+  def predecessorHashValue_=(value: Int): Unit = _predecessorHashValue = Some(value)
+
+  def predecessor: Option[ActorRef] = _predecessor
+
+  def predecessor_=(value: ActorRef): Unit = _predecessor = Some(value)
+
+  def successor: Option[ActorRef] = _successor
+
+  def successor_=(value: ActorRef): Unit = _successor = Some(value)
 
   override def receive: Receive = {
     case ActorIdentity(_, Some(ref)) =>
       print("Identity found " + ref)
-    case FindSuccessor(id: Int) =>
-      if ((id > nodeHashValue && id <= successorHashValue) || (id > nodeHashValue && successorHashValue - nodeHashValue < 0)) {
-        println("Found a responsible node for key " + id + " in node " + this.nodeHashValue)
-      } else {
-        this.successor ! FindSuccessor(id: Int)
+    case RetrieveConfiguration =>
+      println("State for " + self + " is: this._successor " + this._successor + " _successorHashValue " + _successorHashValue +
+        " _predecessorHashValue " + _predecessorHashValue + " this._successor " + this._successor + " this.predecessor " + this.predecessor)
+
+    case ChangePredecessor(candidate: ActorRef, candidateHash: Int) =>
+      this._predecessor = Some(candidate)
+      this._predecessorHashValue = Some(candidateHash)
+    case ChangeSuccessor(candidate: ActorRef, candidateHash: Int) =>
+      this._successor = Some(candidate)
+      this._successorHashValue = Some(candidateHash)
+    //    case Leave(candidate: ActorRef, candidateHash: Int) =>
+
+
+    case Join(candidate: ActorRef, candidateHash: Int) =>
+      println("Join request with candidateHash " + candidateHash + " received in node " + this.nodeHashValue)
+      this._successorHashValue match {
+        case Some(value) if value > candidateHash && (this.nodeHashValue < candidateHash || (this.nodeHashValue > value)) =>
+          println("Found a position for node " + candidateHash + " after " + this.nodeHashValue)
+          candidate ! ChangeSuccessor(this.successor.get, value)
+          candidate ! ChangePredecessor(self, this.nodeHashValue)
+          this._successor.get ! ChangePredecessor(candidate, candidateHash)
+          this._successor = Some(candidate)
+          this._successorHashValue = Some(candidateHash)
+        case Some(value) if value > candidateHash && this.nodeHashValue > candidateHash =>
+          this.predecessor.get ! Join(candidate, candidateHash)
+        case Some(value) if value < candidateHash =>
+          this._successor.get ! Join(candidate, candidateHash)
+        case None if this.nodeHashValue > candidateHash =>
+          println("Node hash is " + this.nodeHashValue)
+          println("CandidateHash is " + candidateHash)
+          candidate ! ChangePredecessor(self, this.nodeHashValue)
+          candidate ! ChangeSuccessor(self, this.nodeHashValue)
+          this._predecessor = Some(candidate)
+          this._successor = Some(candidate)
+          this._predecessorHashValue = Some(candidateHash)
+          this._successorHashValue = Some(candidateHash)
+        case None if this.nodeHashValue < candidateHash =>
+          this._predecessor = Some(candidate)
+          this._successor = Some(candidate)
+          this._predecessorHashValue = Some(candidateHash)
+          this._successorHashValue = Some(candidateHash)
       }
-    case AssignSuccessor(name: String, successorHashValue: Int) =>
-
-      this.successorHashValue = successorHashValue
-      val TIMEOUT: Timeout = Timeout(100, TimeUnit.MILLISECONDS)
-      context.actorSelection(name) ! Identify(1)
-      context.actorSelection(name).resolveOne()(TIMEOUT).onComplete(res => {
-        println("And here as well " + res.get)
-        this.successor = res.get
-      })
-    case Join(name: String, identifier: Int) =>
-      println("Join request with id " + identifier + " received in node " + this.nodeHashValue + ", current node successor is " + this.successorHashValue)
-      if ((identifier > nodeHashValue && identifier <= successorHashValue)
-        || (identifier > nodeHashValue && successorHashValue - nodeHashValue < 0)) {
-        println("Found a predecessor node to join " + this.nodeHashValue)
-        val previousSuccessorHash = this.successorHashValue
-        val previousSuccessor = this.successor
-        val TIMEOUT: Timeout = Timeout(100, TimeUnit.MILLISECONDS)
-        context.actorSelection(name).resolveOne()(TIMEOUT).onComplete(res => {
-          this.successor = res.get // node that wants to join becomes current successor
-          this.successorHashValue = identifier
-          res.get ! Configuration(previousSuccessor, previousSuccessorHash) // send new config to newJoiner???
-        })
-      } else {
-        println("Join request with id " + identifier + " passed further from node " + this.nodeHashValue)
-        this.successor ! Join(name, identifier)
-      }
-    case Configuration(successor: ActorRef, successorHash: Int) =>
-      println("Received configuration for node " + this.nodeHashValue + " new successor is " + successor + " new successorValue is " + successorHash)
-      this.successor = successor
-      this.successorHashValue = successorHash
-//    case Leave(nodeName: String, identifier: Int) =>
-//      if(this.nodeHashValue == identifier) {
-//        println("Current node will leave now")
-//        this.successor = null
-//        this.successorHashValue = -1
-//      } else {
-//        val TIMEOUT: Timeout = Timeout(100, TimeUnit.MILLISECONDS)
-//        context.actorSelection(nodeName).resolveOne()(TIMEOUT).onComplete(res => {
-//          res.get ! Leave(nodeName, identifier)
-//        })
-//      }
-
-
   }
 }
 
@@ -76,17 +78,19 @@ object Node {
 
   sealed abstract class Command
 
-  case class FindSuccessor(id: Int) extends Command
+  case class ChangePredecessor(candidate: ActorRef, candidateHash: Int) extends Command
 
-  case class Leave(nodeName: String, identifier: Int)  extends Command
+  case class ChangeSuccessor(candidate: ActorRef, candidateHash: Int) extends Command
 
-  case class AssignSuccessor(name: String, successorHashValue: Int) extends Command
+  case class Join(candidate: ActorRef, candidateHash: Int) extends Command
 
-  case class Join(name: String, identifier: Int) extends Command
+  case class Leave(candidate: ActorRef, candidateHash: Int) extends Command
 
-  case class Configuration(successor: ActorRef, successorHash: Int) extends Command
+  case class StoreValue(key: Int, value: Int) extends Command
 
-  def props(successor: ActorRef, nodeHashValue: Int, successorHashValue: Int): Props =
-    Props(new Node(successor, nodeHashValue, successorHashValue))
+  case object RetrieveConfiguration extends Command
+
+  def props(nodeHashValue: Int): Props =
+    Props(new Node(nodeHashValue))
 
 }
