@@ -10,10 +10,12 @@ class HistoryActor extends PersistentActor {
   }
 
   override def receiveRecover: Receive = {
+//    case SnapshotOffer(metadata, offeredSnapshot: HistoryState) ⇒
+//      state = offeredSnapshot
+//      println("Snapshot accepted")
     case evt: NodeJoinedEvent =>
       updateState(evt)
       println("Received recover event")
-    //    case SnapshotOffer(_, snapshot: ExampleState) ⇒ state = snapshot
   }
 
   override def receiveCommand: Receive = {
@@ -21,8 +23,12 @@ class HistoryActor extends PersistentActor {
       event => {
         println("Event persisted")
         updateState(event)
+        if (this.state.numberOfNodes > 10) {
+          this.saveSnapshot(state)
+        }
       }
     }
+    case SaveSnapshotSuccess => println("Snapshot saved")
   }
 
   override def persistenceId: String = "history-actor"
@@ -35,7 +41,6 @@ class HistoryState {
 
   def joinNode(): Unit = {
     _numberOfNodes = _numberOfNodes + 1
-    println(" number of node now is " + _numberOfNodes)
   }
 
 }

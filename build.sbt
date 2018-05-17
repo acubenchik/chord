@@ -14,5 +14,6 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-persistence" % akkaVersion,
   "org.scalatest" %% "scalatest" % "3.0.1" % "test",
   "com.typesafe.akka" %% "akka-persistence-cassandra" % "0.84",
-  "com.typesafe.akka" %% "akka-persistence-cassandra-launcher" % "0.84" % Test
+  "com.typesafe.akka" %% "akka-persistence-cassandra-launcher" % "0.84" % Test,
+    "com.github.romix.akka" %% "akka-kryo-serialization" % "0.5.1"
 )

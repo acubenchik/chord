@@ -14,7 +14,7 @@ object ChordServer extends App {
 
   implicit val system: ActorSystem = ActorSystem("chordSystem")
 
-  val historyActor: ActorRef = system.actorOf(HistoryActor.props(), "history")
+  val historyActor: ActorRef = system.actorOf(HistoryActor.props(), "history1")
 //    val node1Identifier = 30
 //  ////    new Chord().calculateHash("node1", 0); //871105434
 //    val node1: ActorRef = system.actorOf(Node.props(node1Identifier), "node1")
@@ -32,7 +32,7 @@ object ChordServer extends App {
 //    node2 ! RetrieveConfiguration
 //    node1 ! RetrieveConfiguration
 
-  historyActor ! NodeJoined("testNode")
+  historyActor ! NodeJoined("testNode1")
 
 //  implicit val materializer = ActorMaterializer()
 //
